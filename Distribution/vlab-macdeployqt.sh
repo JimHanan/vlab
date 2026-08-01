@@ -46,6 +46,34 @@ add_executables "$systembundles"
 echo "Running: $cmd"
 eval $cmd
 
+# macdeployqt only writes a qt.conf (pointing at Contents/PlugIns) into the main
+# browser.app bundle. The helper bundles under Plug-ins/ and System/ get their
+# rpaths fixed via -executable= above, but without their own qt.conf they can't
+# find the cocoa platform plugin and abort with "no Qt platform plugin could be
+# initialized" the moment they try to create a QApplication. Give each helper
+# bundle a qt.conf pointing back up at the main bundle's PlugIns directory.
+echo "Adding qt.conf to helper bundles:"
+add_qtconf() {
+    local bundles=$1
+    for bundle in $bundles; do
+        mkdir -p "$bundle/Contents/Resources"
+        cat > "$bundle/Contents/Resources/qt.conf" <<EOF
+[Paths]
+Plugins = ../../../PlugIns
+EOF
+        echo -n "."
+    done
+}
+add_qtconf "$pluginbundles"
+add_qtconf "$systembundles"
+echo "OK"
+
+# Adding files after macdeployqt's -codesign=- invalidates the seal it just
+# applied, so re-sign the whole bundle (main app + all nested helper bundles)
+# ad-hoc now that its contents are final.
+echo "Re-signing bundle after adding qt.conf files..."
+codesign --force --deep --sign - "$rootdir/browser.app"
+
 # copy extra items to the distributable
 echo "Copying oofs :"
 pwd
